@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulador de Examen SENATI</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="top-header">
+    <div class="top-bar">
+      <div class="brand">
+        <div class="brand-logo">S</div>
+        <div>
+          <h1>Simulador de Examen SENATI</h1>
+          <p>Banco de preguntas para preparación académica</p>
+        </div>
+      </div>
+
+      <div class="exam-pill">
+        <span>Modo evaluación</span>
+        <strong>Tipo marcar</strong>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-layout">
+
+    <!-- PANTALLA INICIAL -->
+    <section id="inicio" class="home-grid">
+
+      <div class="hero-card">
+        <span class="small-label">Preparación personalizada</span>
+        <h2>Practica con preguntas variadas de tus 4 módulos</h2>
+
+        <p>
+          Este simulador carga tu banco de preguntas desde el archivo
+          <strong>banco_preguntas_examen.csv</strong>, selecciona preguntas al azar
+          y evita repetirlas en exámenes consecutivos.
+        </p>
+
+        <div id="csvStatus" class="status-box">
+          Cargando banco de preguntas...
+        </div>
+
+        <div class="config-panel">
+          <div class="field">
+            <label for="cantidadPreguntas">Cantidad de preguntas</label>
+            <select id="cantidadPreguntas">
+              <option value="30">30 preguntas</option>
+              <option value="40">40 preguntas</option>
+              <option value="50">50 preguntas</option>
+              <option value="60" selected>60 preguntas</option>
+              <option value="80">80 preguntas</option>
+              <option value="100">100 preguntas</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="modoSeleccion">Tipo de selección</label>
+            <select id="modoSeleccion">
+              <option value="balanceado" selected>Variado por módulo y tema</option>
+              <option value="aleatorio">Aleatorio general</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="action-row">
+          <button id="btnIniciar" class="btn btn-primary" disabled>
+            Iniciar examen
+          </button>
+
+          <button id="btnReiniciarHistorial" class="btn btn-light">
+            Reiniciar historial
+          </button>
+        </div>
+
+        <p class="help-text">
+          Sube todos los archivos de este proyecto al mismo directorio en Hostinger.
+          La aplicación carga los datos directamente desde los archivos JSON/CSV.
+        </p>
+      </div>
+
+      <aside class="summary-card">
+        <h3>Resumen del banco</h3>
+
+        <div class="summary-list">
+          <div class="summary-item">
+            <span>Total de preguntas</span>
+            <strong id="totalPreguntas">0</strong>
+          </div>
+
+          <div class="summary-item">
+            <span>Preguntas usadas</span>
+            <strong id="preguntasUsadas">0</strong>
+          </div>
+
+          <div class="summary-item">
+            <span>Disponibles</span>
+            <strong id="preguntasDisponibles">0</strong>
+          </div>
+        </div>
+
+        <div class="modules-box">
+          <h4>Módulos incluidos</h4>
+          <ul>
+            <li>Aplicaciones móviles</li>
+            <li>Soluciones IoT</li>
+            <li>Fullstack Developer</li>
+            <li>Machine Learning</li>
+          </ul>
+        </div>
+      </aside>
+
+    </section>
+
+    <!-- EXAMEN -->
+    <section id="examen" class="exam-card hidden">
+
+      <div class="exam-header">
+        <div>
+          <span class="small-label">Examen en curso</span>
+          <h2>Responde las preguntas seleccionadas</h2>
+          <p>Marca una sola alternativa por pregunta.</p>
+        </div>
+
+        <div class="progress-panel">
+          <strong id="contadorRespondidas">0/60 respondidas</strong>
+          <div class="progress-track">
+            <div id="barraProgreso"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="contenedorPreguntas" class="questions-area"></div>
+
+      <div class="floating-actions">
+        <button id="btnTerminar" class="btn btn-primary">
+          Terminar examen
+        </button>
+
+        <button id="btnCancelar" class="btn btn-danger">
+          Cancelar
+        </button>
+      </div>
+
+    </section>
+
+    <!-- RESULTADO -->
+    <section id="resultado" class="result-card hidden">
+
+      <div class="result-header">
+        <div>
+          <span class="small-label">Resultado final</span>
+          <h2>Revisión del examen</h2>
+          <p>Consulta tus respuestas correctas, incorrectas y explicaciones.</p>
+        </div>
+
+        <div class="score-box">
+          <span>Puntaje</span>
+          <strong id="puntajeFinal">0/60</strong>
+          <small id="porcentajeFinal">0%</small>
+        </div>
+      </div>
+
+      <div class="result-stats">
+        <div class="result-item success">
+          <span>Correctas</span>
+          <strong id="totalCorrectas">0</strong>
+        </div>
+
+        <div class="result-item error">
+          <span>Incorrectas</span>
+          <strong id="totalIncorrectas">0</strong>
+        </div>
+
+        <div class="result-item warning">
+          <span>Sin responder</span>
+          <strong id="totalBlanco">0</strong>
+        </div>
+      </div>
+
+      <div class="action-row result-actions">
+        <button id="btnNuevoExamen" class="btn btn-primary">
+          Dar otro examen
+        </button>
+
+        <button id="btnVerIncorrectas" class="btn btn-light">
+          Ver incorrectas
+        </button>
+
+        <button id="btnVerTodo" class="btn btn-light">
+          Ver todo
+        </button>
+      </div>
+
+      <div id="revision" class="review-area"></div>
+
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <p>Simulador local de estudio | SENATI | Banco CSV: banco_preguntas_examen.csv</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
