@@ -282,6 +282,23 @@ html, body {
   font-size: 14px;
 }
 
+.small-note {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.recommendation-card {
+  margin-top: 18px;
+  background: linear-gradient(180deg, #ffffff, var(--blue-soft));
+  border: 1px solid var(--blue-light);
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: var(--blue-dark);
+  font-weight: 700;
+  font-size: 14px;
+}
+
 select {
   width: 100%;
   border: 1px solid var(--border);
