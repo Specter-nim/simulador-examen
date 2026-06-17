@@ -1,27 +1,26 @@
-// ========================================
-// Simulador SENATI - script.js (actualizado para 3 modos: mixto/probable/completo)
+﻿// ========================================
+// Simulador SENATI - script.js (actualizado para 2 modos: mixto/probable)
 // ========================================
 
 // Constantes de rutas y almacenamiento
 const BANCOS = {
-  prioritario: "data/banco_preguntas_prioridad/banco_preguntas_examen_prioritario.json",
-  amplio: "data/banco_preguntas_curricular/banco_preguntas_senati_3000.json"
+  prioritario: "data/banco_preguntas_prioridad/banco_preguntas_prioritario_ampliado_validado_conciso.json",
+  normal: "data/banco_preguntas_curricular/banco_preguntas_normal_ampliado_validado_conciso.json"
 };
 
-const CSV_FILE = "data/banco_preguntas_curricular/banco_preguntas_examen.csv"; // fallback
+const CSV_FILE = "data/banco_preguntas_curricular/banco_preguntas_normal_ampliado_validado_conciso.csv"; // fallback
 
 const STORAGE_KEYS = {
   mixto: "historial_senati_mixto",
-  probable: "historial_senati_probable",
-  completo: "historial_senati_completo"
+  probable: "historial_senati_probable"
 };
 
-const LETRAS = ["A", "B", "C", "D", "E"]; // opciones válidas
+const LETRAS = ["A", "B", "C", "D", "E"]; // opciones vÃ¡lidas
 
 // Estado
 let bancoPreguntas = [];
 let bancoPreguntasPrioritario = [];
-let bancoPreguntasAmplio = [];
+let bancoPreguntasNormal = [];
 let examenActual = [];
 let respuestasUsuario = {};
 let resultadosActuales = [];
@@ -63,7 +62,7 @@ const elementos = {
   revision: $("revision")
 };
 
-// Inicialización
+// InicializaciÃ³n
 document.addEventListener('DOMContentLoaded', async () => {
   configurarEventos();
   const modoInicial = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
@@ -102,7 +101,7 @@ async function cargarJSON(ruta) {
     if (!resp.ok) throw new Error('no encontrado');
     const datos = await resp.json();
     const arr = Array.isArray(datos) ? datos : datos.preguntas || [];
-    return arr.map(normalizarPregunta).filter(validarPregunta);
+    return dedupePreguntas(arr.map(normalizarPregunta).filter(validarPregunta));
   } catch (err) {
     return [];
   }
@@ -111,43 +110,37 @@ async function cargarJSON(ruta) {
 async function cargarBancoModo(modo) {
   bancoPreguntas = [];
   bancoPreguntasPrioritario = [];
-  bancoPreguntasAmplio = [];
+  bancoPreguntasNormal = [];
 
   if (modo === 'probable' || modo === 'mixto') {
-    bancoPreguntasPrioritario = await cargarJSON(BANCOS.prioritario);
+    bancoPreguntasPrioritario = ordenarBancoPrioritario(await cargarJSON(BANCOS.prioritario));
     if (bancoPreguntasPrioritario.length === 0) {
       // intentar CSV alternativo
       try {
         const csvPath = BANCOS.prioritario.replace('.json', '.csv');
         const txt = await (await fetch(csvPath)).text();
-        bancoPreguntasPrioritario = parseCSV(txt).map(normalizarPregunta).filter(validarPregunta);
+        bancoPreguntasPrioritario = ordenarBancoPrioritario(dedupePreguntas(parseCSV(txt).map(normalizarPregunta).filter(validarPregunta)));
       } catch (e) {}
     }
   }
 
-  if (modo === 'completo' || modo === 'mixto') {
-    bancoPreguntasAmplio = await cargarJSON(BANCOS.amplio);
-    if (bancoPreguntasAmplio.length === 0) {
+  if (modo === 'mixto') {
+    bancoPreguntasNormal = await cargarJSON(BANCOS.normal);
+    if (bancoPreguntasNormal.length === 0) {
       try {
         const txt = await (await fetch(CSV_FILE)).text();
-        bancoPreguntasAmplio = parseCSV(txt).map(normalizarPregunta).filter(validarPregunta);
+        bancoPreguntasNormal = dedupePreguntas(parseCSV(txt).map(normalizarPregunta).filter(validarPregunta));
       } catch (e) {}
     }
   }
 
   if (modo === 'probable') {
     bancoPreguntas = [...bancoPreguntasPrioritario];
-    elementos.csvStatus.textContent = `✓ Banco prioritario cargado: ${bancoPreguntasPrioritario.length} preguntas.`;
-  } else if (modo === 'completo') {
-    bancoPreguntas = [...bancoPreguntasAmplio];
-    elementos.csvStatus.textContent = `✓ Banco amplio cargado: ${bancoPreguntasAmplio.length} preguntas.`;
+    elementos.csvStatus.textContent = `âœ“ Banco prioritario cargado: ${bancoPreguntasPrioritario.length} preguntas.`;
   } else {
-    // mixto: combinar pero mantener arrays separados
-    const mapa = new Map();
-    for (const p of bancoPreguntasPrioritario) mapa.set(p.id, p);
-    for (const p of bancoPreguntasAmplio) if (!mapa.has(p.id)) mapa.set(p.id, p);
-    bancoPreguntas = Array.from(mapa.values());
-    elementos.csvStatus.textContent = `✓ Bancos cargados (mixto): prioritario ${bancoPreguntasPrioritario.length}, amplio ${bancoPreguntasAmplio.length}, combinadas ${bancoPreguntas.length}.`;
+    // mixto 50/50 entre prioritario y normal (datos separados)
+    bancoPreguntas = [];
+    elementos.csvStatus.textContent = `âœ“ Bancos cargados (mixto 50/50): prioritario ${bancoPreguntasPrioritario.length}, normal ${bancoPreguntasNormal.length}.`;
   }
 
   elementos.csvStatus.classList.remove('error');
@@ -201,40 +194,122 @@ function parseCSV(texto) {
 }
 
 // -------------------------
-// Normalización / validación
+// NormalizaciÃ³n / validaciÃ³n
 // -------------------------
 function normalizarPregunta(p) {
-  return {
-    id: p.id ? Number(p.id) : crearIdTemporal(p),
+  const pregunta = p.pregunta || p.question || '';
+  const preguntaNormalizada = pregunta.toString().trim();
+  const opciones = {
+    opcion_a: p.opcion_a || p.opcionA || '',
+    opcion_b: p.opcion_b || p.opcionB || '',
+    opcion_c: p.opcion_c || p.opcionC || '',
+    opcion_d: p.opcion_d || p.opcionD || '',
+    opcion_e: p.opcion_e || p.opcionE || ''
+  };
+
+  const respuestaCorrecta = (p.respuesta_correcta || p.answer || '').toString().toUpperCase().trim();
+  const preguntaNormalizadaObjeto = {
+    modulo: p.modulo || p.module || 'General',
+    tema: p.tema || 'General',
+    pregunta: preguntaNormalizada,
+    ...opciones,
+    respuesta_correcta: respuestaCorrecta
+  };
+
+  const normalizada = {
+    id: p.id ? Number(p.id) : crearIdTemporal(preguntaNormalizadaObjeto),
     modulo: p.modulo || p.module || 'General',
     semana: p.semana || '',
     tema: p.tema || 'General',
     subtema: p.subtema || '',
     nivel: p.nivel || '',
     tipo_pregunta: p.tipo_pregunta || '',
-    pregunta: p.pregunta || p.question || '',
-    opcion_a: p.opcion_a || p.opcionA || '',
-    opcion_b: p.opcion_b || p.opcionB || '',
-    opcion_c: p.opcion_c || p.opcionC || '',
-    opcion_d: p.opcion_d || p.opcionD || '',
-    opcion_e: p.opcion_e || p.opcionE || '',
-    respuesta_correcta: (p.respuesta_correcta || p.answer || '').toString().toUpperCase().trim(),
+    pregunta: preguntaNormalizada,
+    ...opciones,
+    respuesta_correcta: respuestaCorrecta,
     respuesta_texto: p.respuesta_texto || p.answer_text || '',
     explicacion: p.explicacion || p.explicacion || '',
     probabilidad_salida: p.probabilidad_salida || p.probabilidad || '',
     prioridad: p.prioridad || '',
     origen_refuerzo: p.origen_refuerzo || ''
   };
+
+  return { ...normalizada, clave: crearClavePregunta(normalizada) };
 }
 
 function crearIdTemporal(p) {
-  const texto = `${p.modulo || ''}-${p.tema || ''}-${p.pregunta || p.question || ''}`;
+  const texto = `${p.modulo || ''}-${p.tema || ''}-${p.pregunta || ''}-${p.opcion_a || ''}-${p.opcion_b || ''}-${p.opcion_c || ''}-${p.opcion_d || ''}-${p.opcion_e || ''}`;
   let hash = 0;
   for (let i = 0; i < texto.length; i++) {
     hash = ((hash << 5) - hash) + texto.charCodeAt(i);
     hash |= 0;
   }
   return Math.abs(hash);
+}
+
+function crearClavePregunta(p) {
+  return [
+    p.modulo || 'General',
+    p.tema || 'General',
+    p.subtema || '',
+    p.pregunta || '',
+    p.opcion_a || '',
+    p.opcion_b || '',
+    p.opcion_c || '',
+    p.opcion_d || '',
+    p.opcion_e || '',
+    p.respuesta_correcta || ''
+  ]
+    .map(val => String(val || '').trim().toLowerCase())
+    .join('||');
+}
+
+function dedupePreguntas(preguntas) {
+  const vistos = new Set();
+  return preguntas.filter(p => {
+    const claveTexto = `txt:${p.clave}`;
+    const claveId = p.id != null && !Number.isNaN(p.id) ? `id:${p.id}` : null;
+    if (vistos.has(claveTexto)) return false;
+    if (claveId && vistos.has(claveId)) return false;
+    vistos.add(claveTexto);
+    if (claveId) vistos.add(claveId);
+    return true;
+  });
+}
+
+function prioridadValor(prioridad) {
+  if (!prioridad) return 0;
+  const valor = String(prioridad).trim().toLowerCase();
+  if (valor === 'alta') return 3;
+  if (valor === 'media' || valor === 'medio') return 2;
+  if (valor === 'baja') return 1;
+  return 0;
+}
+
+function ordenarBancoPrioritario(banco) {
+  return [...banco].sort((a, b) => {
+    const probA = Number(a.probabilidad_salida) || 0;
+    const probB = Number(b.probabilidad_salida) || 0;
+    if (probB !== probA) return probB - probA;
+    const prioA = prioridadValor(a.prioridad);
+    const prioB = prioridadValor(b.prioridad);
+    if (prioB !== prioA) return prioB - prioA;
+    const modA = String(a.modulo || '').localeCompare(String(b.modulo || ''));
+    if (modA !== 0) return modA;
+    return String(a.tema || '').localeCompare(String(b.tema || ''));
+  });
+}
+
+function filtrarDuplicadosEnLista(preguntas) {
+  const vistos = new Set();
+  return preguntas.filter(p => {
+    const clave = `id:${p.id}`;
+    const clave2 = `txt:${p.clave}`;
+    if (vistos.has(clave) || vistos.has(clave2)) return false;
+    vistos.add(clave);
+    vistos.add(clave2);
+    return true;
+  });
 }
 
 function validarPregunta(p) {
@@ -244,7 +319,7 @@ function validarPregunta(p) {
 }
 
 // -------------------------
-// Selección de preguntas
+// SelecciÃ³n de preguntas
 // -------------------------
 function seleccionarPreguntas(cantidad, modoSeleccion, modoPractica) {
   modoSeleccion = modoSeleccion || 'balanceado';
@@ -254,43 +329,69 @@ function seleccionarPreguntas(cantidad, modoSeleccion, modoPractica) {
     return seleccionarDesdeBanco(bancoPreguntasPrioritario, cantidad, modoSeleccion, modoPractica);
   }
 
-  if (modoPractica === 'completo') {
-    return seleccionarDesdeBanco(bancoPreguntasAmplio, cantidad, modoSeleccion, modoPractica);
-  }
-
-  // Mixto: 70% prioritario, 30% amplio
-  const prioridadCount = Math.round(cantidad * 0.7);
-  const amplioCount = cantidad - prioridadCount;
+  // Mixto 50/50 entre prioritario y normal
+  const prioridadCount = Math.round(cantidad * 0.5);
+  const normalCount = cantidad - prioridadCount;
 
   const partePrioritario = seleccionarDesdeBanco(bancoPreguntasPrioritario, prioridadCount, modoSeleccion, modoPractica);
-  let parteAmplio = seleccionarDesdeBanco(bancoPreguntasAmplio, amplioCount, modoSeleccion, modoPractica);
+  let parteNormal = seleccionarDesdeBanco(bancoPreguntasNormal, normalCount, modoSeleccion, modoPractica);
 
-  const idsPrior = new Set(partePrioritario.map(p => p.id));
-  parteAmplio = parteAmplio.filter(p => !idsPrior.has(p.id));
+  const clavePrioritaria = new Set([
+    ...partePrioritario.map(p => `id:${p.id}`),
+    ...partePrioritario.map(p => `txt:${p.clave}`)
+  ]);
 
-  if (partePrioritario.length + parteAmplio.length < cantidad) {
-    const faltan = cantidad - (partePrioritario.length + parteAmplio.length);
-    const poolAmplio = bancoPreguntasAmplio.filter(p => ![...partePrioritario, ...parteAmplio].some(x => x.id === p.id));
-    parteAmplio = parteAmplio.concat(mezclar(poolAmplio).slice(0, faltan));
+  parteNormal = parteNormal.filter(p => {
+    return !clavePrioritaria.has(`id:${p.id}`) && !clavePrioritaria.has(`txt:${p.clave}`);
+  });
+
+  if (partePrioritario.length + parteNormal.length < cantidad) {
+    const faltan = cantidad - (partePrioritario.length + parteNormal.length);
+    const poolNormal = filtrarDuplicadosEnLista(bancoPreguntasNormal).filter(p => {
+      return ![...partePrioritario, ...parteNormal].some(x => x.id === p.id || x.clave === p.clave);
+    });
+    parteNormal = parteNormal.concat(mezclar(poolNormal).slice(0, faltan));
   }
 
-  return mezclar([...partePrioritario, ...parteAmplio]).slice(0, cantidad);
+  return mezclar([...partePrioritario, ...parteNormal]).slice(0, cantidad);
 }
 
 function seleccionarDesdeBanco(banco, cantidad, modoSeleccion, modoPractica) {
   modoSeleccion = modoSeleccion || 'balanceado';
   modoPractica = modoPractica || 'mixto';
 
+  const bancoUnico = filtrarDuplicadosEnLista(banco);
+  const bancoOrdenado = modoPractica === 'probable' ? ordenarBancoPrioritario(bancoUnico) : bancoUnico;
   const historial = new Set(obtenerHistorial(modoPractica));
-  const sinUsar = banco.filter(p => !historial.has(p.id));
+  const sinUsar = bancoOrdenado.filter(p => {
+    return !historial.has(`id:${p.id}`) && !historial.has(`txt:${p.clave}`);
+  });
 
   let seleccion = [];
+  const prioridadDirecta = modoPractica === 'probable';
 
-  if (sinUsar.length >= cantidad) {
+  if (prioridadDirecta) {
+    const topPoolSize = Math.max(cantidad * 2, cantidad + 10);
+    const topCandidatos = sinUsar.slice(0, topPoolSize);
+    if (topCandidatos.length >= cantidad) {
+      seleccion = modoSeleccion === 'balanceado'
+        ? seleccionarBalanceado(topCandidatos, cantidad)
+        : topCandidatos.slice(0, cantidad);
+    } else {
+      seleccion = topCandidatos.slice();
+      const usados = bancoOrdenado.filter(p => {
+        return (historial.has(`id:${p.id}`) || historial.has(`txt:${p.clave}`)) && !seleccion.some(s => s.id === p.id);
+      });
+      const faltan = cantidad - seleccion.length;
+      seleccion = seleccion.concat(mezclar(usados).slice(0, faltan));
+    }
+  } else if (sinUsar.length >= cantidad) {
     seleccion = modoSeleccion === 'balanceado' ? seleccionarBalanceado(sinUsar, cantidad) : mezclar(sinUsar).slice(0, cantidad);
   } else {
     seleccion = sinUsar.slice();
-    const usados = banco.filter(p => historial.has(p.id) && !seleccion.some(s => s.id === p.id));
+    const usados = bancoOrdenado.filter(p => {
+      return (historial.has(`id:${p.id}`) || historial.has(`txt:${p.clave}`)) && !seleccion.some(s => s.id === p.id);
+    });
     const faltan = cantidad - seleccion.length;
     seleccion = seleccion.concat(mezclar(usados).slice(0, faltan));
   }
@@ -298,7 +399,7 @@ function seleccionarDesdeBanco(banco, cantidad, modoSeleccion, modoPractica) {
   return seleccion.slice(0, cantidad);
 }
 
-// Mantener las funciones originales de selección balanceada/agrupación
+// Mantener las funciones originales de selecciÃ³n balanceada/agrupaciÃ³n
 function seleccionarBalanceado(preguntas, cantidad) {
   const seleccionadas = [];
   const porModulo = agruparPor(preguntas, p => p.modulo);
@@ -420,7 +521,7 @@ function terminarExamen() {
   const total = examenActual.length;
   const respondidas = Object.keys(respuestasUsuario).length;
   if (respondidas < total) {
-    const confirmar = confirm(`Te faltan ${total - respondidas} preguntas por responder. ¿Deseas terminar de todas formas?`);
+    const confirmar = confirm(`Te faltan ${total - respondidas} preguntas por responder. Â¿Deseas terminar de todas formas?`);
     if (!confirmar) return;
   }
 
@@ -431,10 +532,11 @@ function terminarExamen() {
     return { ...p, marcada, correcta, estado };
   });
 
-  // Guardar en historial según modo
+  // Guardar en historial segÃºn modo
   const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
   const idsExamen = examenActual.map(p => p.id);
-  guardarHistorial(modoPractica, idsExamen);
+  const clavesExamen = examenActual.map(p => p.clave).filter(Boolean);
+  guardarHistorial(modoPractica, idsExamen, clavesExamen);
 
   mostrarResultados();
   elementos.examen.classList.add('hidden');
@@ -470,7 +572,7 @@ function mostrarRevision(tipo) {
     return `
       <article class="review-card ${clase}">
         <div class="review-meta">
-          <span class="badge">Revisión ${index + 1}</span>
+          <span class="badge">RevisiÃ³n ${index + 1}</span>
           <span class="badge">${escaparHTML(r.estado.toUpperCase())}</span>
           <span class="badge">${escaparHTML(r.tema)}</span>
         </div>
@@ -480,16 +582,16 @@ function mostrarRevision(tipo) {
           <p><strong>Respuesta correcta:</strong> ${escaparHTML(textoCorrecta)}</p>
           ${r.respuesta_texto ? `<p><strong>Respuesta clave:</strong> ${escaparHTML(r.respuesta_texto)}</p>` : ''}
         </div>
-        ${r.explicacion ? `<div class="explanation"><strong>Explicación:</strong> ${escaparHTML(r.explicacion)}</div>` : ''}
+        ${r.explicacion ? `<div class="explanation"><strong>ExplicaciÃ³n:</strong> ${escaparHTML(r.explicacion)}</div>` : ''}
       </article>
     `;
   }).join('');
 
-  if (lista.length === 0) elementos.revision.innerHTML = `<div class="alert">No hay preguntas para mostrar en esta vista. ¡Excelente trabajo!</div>`;
+  if (lista.length === 0) elementos.revision.innerHTML = `<div class="alert">No hay preguntas para mostrar en esta vista. Â¡Excelente trabajo!</div>`;
 }
 
 function cancelarExamen() {
-  const confirmar = confirm('¿Seguro que deseas cancelar el examen actual?');
+  const confirmar = confirm('Â¿Seguro que deseas cancelar el examen actual?');
   if (!confirmar) return;
   examenActual = [];
   respuestasUsuario = {};
@@ -515,23 +617,39 @@ function reiniciarParaMismoModo() {
 function obtenerHistorial(modoPractica = 'mixto') {
   try {
     const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.mixto;
-    return JSON.parse(localStorage.getItem(key) || '[]');
+    const almacenado = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!Array.isArray(almacenado)) return [];
+
+    return almacenado.flatMap(entry => {
+      if (typeof entry === 'number' && !Number.isNaN(entry)) return [`id:${entry}`];
+      if (typeof entry === 'string') {
+        const texto = entry.trim();
+        if (/^id:\d+$/.test(texto) || texto.startsWith('txt:')) return [texto];
+        if (/^\d+$/.test(texto)) return [`id:${texto}`];
+      }
+      return [];
+    });
   } catch {
     return [];
   }
 }
 
-function guardarHistorial(modoPractica, ids) {
+function guardarHistorial(modoPractica, ids, claves = []) {
   try {
     const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.mixto;
-    const actuales = obtenerHistorial(modoPractica) || [];
-    const combinados = [...new Set([...actuales.map(Number), ...ids.map(Number)])];
-    localStorage.setItem(key, JSON.stringify(combinados));
+    const actuales = new Set(obtenerHistorial(modoPractica));
+    ids.forEach(id => {
+      if (id != null && !Number.isNaN(Number(id))) actuales.add(`id:${Number(id)}`);
+    });
+    claves.forEach(clave => {
+      if (typeof clave === 'string' && clave.trim()) actuales.add(`txt:${clave.trim()}`);
+    });
+    localStorage.setItem(key, JSON.stringify([...actuales]));
   } catch (e) {}
 }
 
 function reiniciarHistorial() {
-  const confirmar = confirm('¿Deseas borrar el historial del modo seleccionado? Esto permitirá que preguntas repetidas vuelvan a aparecer.');
+  const confirmar = confirm('Â¿Deseas borrar el historial del modo seleccionado? Esto permitirÃ¡ que preguntas repetidas vuelvan a aparecer.');
   if (!confirmar) return;
   const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
   const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.mixto;
@@ -542,11 +660,32 @@ function reiniciarHistorial() {
 function actualizarEstadisticas() {
   const modo = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
   const usadas = obtenerHistorial(modo) || [];
-  const total = bancoPreguntas.length;
-  const disponibles = bancoPreguntas.filter(p => !usadas.includes(p.id)).length;
+  const idsUsadas = new Set(usadas.filter(entry => entry.startsWith('id:')).map(entry => Number(entry.slice(3))).filter(n => !Number.isNaN(n)));
+  const clavesUsadas = new Set(usadas.filter(entry => entry.startsWith('txt:')).map(entry => entry.slice(4)));
+
+  let total = bancoPreguntas.length;
+  let disponibles = bancoPreguntas.filter(p => !idsUsadas.has(Number(p.id)) && !clavesUsadas.has(p.clave)).length;
+
+  if (modo === 'mixto') {
+    total = bancoPreguntasPrioritario.length + bancoPreguntasNormal.length;
+    disponibles = [...bancoPreguntasPrioritario, ...bancoPreguntasNormal].filter(p => !idsUsadas.has(Number(p.id)) && !clavesUsadas.has(p.clave)).length;
+  }
+
+  if (modo === 'probable') {
+    total = bancoPreguntasPrioritario.length;
+    disponibles = bancoPreguntasPrioritario.filter(p => !idsUsadas.has(Number(p.id)) && !clavesUsadas.has(p.clave)).length;
+  }
+
+  const usadasCount = usedHistorialCount(usadas);
   elementos.totalPreguntas.textContent = total;
-  elementos.preguntasUsadas.textContent = usadas.length;
+  elementos.preguntasUsadas.textContent = usadasCount;
   elementos.preguntasDisponibles.textContent = disponibles;
+}
+
+function usedHistorialCount(usadas) {
+  const idsUsadas = new Set(usadas.filter(entry => entry.startsWith('id:')));
+  const clavesUsadas = new Set(usadas.filter(entry => entry.startsWith('txt:')));
+  return idsUsadas.size + clavesUsadas.size;
 }
 
 // -------------------------
@@ -566,352 +705,4 @@ window._simulador = {
   seleccionarPreguntas, seleccionarDesdeBanco, cargarBancoModo, obtenerHistorial
 };
 
-  contadorRespondidas: $('contadorRespondidas'),
-  barraProgreso: $('barraProgreso'),
 
-  puntajeFinal: $('puntajeFinal'),
-  porcentajeFinal: $('porcentajeFinal'),
-  totalCorrectas: $('totalCorrectas'),
-  totalIncorrectas: $('totalIncorrectas'),
-  totalBlanco: $('totalBlanco'),
-  revision: $('revision')
-};
-
-document.addEventListener('DOMContentLoaded', iniciarApp);
-
-async function iniciarApp(){
-  configurarEventos();
-  const modo = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
-  elementos.csvStatus.textContent = 'Cargando bancos ('+modo+')...';
-  await cargarBancoModo(modo);
-  elementos.btnIniciar.disabled = bancoPreguntas.length === 0;
-  actualizarEstadisticas();
-}
-
-function configurarEventos(){
-  elementos.btnIniciar.addEventListener('click', iniciarExamen);
-  elementos.btnTerminar.addEventListener('click', terminarExamen);
-  elementos.btnCancelar.addEventListener('click', cancelarExamen);
-  // Dar otro examen -> generar otro examen con mismo modo
-  elementos.btnNuevoExamen.addEventListener('click', () => {
-    // Limpiar respuestas previas y generar nuevo examen
-    respuestasUsuario = {};
-    examenActual = [];
-    iniciarExamen();
-  });
-  elementos.btnReiniciarHistorial.addEventListener('click', reiniciarHistorial);
-  elementos.btnVerIncorrectas.addEventListener('click', () => mostrarRevision('incorrectas'));
-  elementos.btnVerTodo.addEventListener('click', () => mostrarRevision('todo'));
-
-  if (elementos.modoPractica) {
-    elementos.modoPractica.addEventListener('change', async () => {
-      const modo = elementos.modoPractica.value;
-      elementos.csvStatus.textContent = 'Cargando bancos ('+modo+')...';
-      await cargarBancoModo(modo);
-      elementos.btnIniciar.disabled = bancoPreguntas.length === 0;
-      actualizarEstadisticas();
-    });
-  }
-}
-
-// -------- Carga de bancos --------
-async function cargarJSON(ruta){
-  try{
-    const r = await fetch(ruta);
-    if(!r.ok) throw new Error('no encontrado');
-    const j = await r.json();
-    const arr = Array.isArray(j) ? j : j.preguntas || [];
-    return arr.map(normalizarPregunta).filter(validarPregunta);
-  }catch(e){
-    return [];
-  }
-}
-
-async function cargarBancoModo(modo){
-  bancoPreguntas = [];
-  bancoPreguntasPrioritario = [];
-  bancoPreguntasAmplio = [];
-
-  if(modo === 'probable' || modo === 'mixto'){
-    bancoPreguntasPrioritario = await cargarJSON(BANCOS.prioritario);
-    if(bancoPreguntasPrioritario.length === 0){
-      // intentar CSV prioritario
-      try{
-        const csvPath = BANCOS.prioritario.replace('.json', '.csv');
-        const txt = await (await fetch(csvPath)).text();
-        bancoPreguntasPrioritario = parseCSV(txt).map(normalizarPregunta).filter(validarPregunta);
-      }catch(e){}
-    }
-  }
-
-  if(modo === 'completo' || modo === 'mixto'){
-    bancoPreguntasAmplio = await cargarJSON(BANCOS.amplio);
-    if(bancoPreguntasAmplio.length === 0){
-      try{
-        const txt = await (await fetch(CSV_FILE)).text();
-        bancoPreguntasAmplio = parseCSV(txt).map(normalizarPregunta).filter(validarPregunta);
-      }catch(e){}
-    }
-  }
-
-  if(modo === 'probable'){
-    bancoPreguntas = [...bancoPreguntasPrioritario];
-    elementos.csvStatus.textContent = `✓ Banco prioritario cargado: ${bancoPreguntasPrioritario.length} preguntas.`;
-  } else if(modo === 'completo'){
-    bancoPreguntas = [...bancoPreguntasAmplio];
-    elementos.csvStatus.textContent = `✓ Banco amplio cargado: ${bancoPreguntasAmplio.length} preguntas.`;
-  } else {
-    // mixto: combinar sin duplicados (prioritario preferente)
-    const map = new Map();
-    for(const p of bancoPreguntasPrioritario) map.set(p.id, p);
-    for(const p of bancoPreguntasAmplio) if(!map.has(p.id)) map.set(p.id, p);
-    bancoPreguntas = Array.from(map.values());
-    elementos.csvStatus.textContent = `✓ Bancos mixtos: prioritario ${bancoPreguntasPrioritario.length}, amplio ${bancoPreguntasAmplio.length}, combinadas ${bancoPreguntas.length}.`;
-  }
-  elementos.csvStatus.classList.remove('error');
-}
-
-// -------- CSV parser (conservado) --------
-function parseCSV(texto){
-  texto = texto.replace(/^\uFEFF/, '');
-  const filas = [];
-  let fila = [];
-  let celda = '';
-  let dentro = false;
-
-  for(let i=0;i<texto.length;i++){
-    const ch = texto[i];
-    const sig = texto[i+1];
-    if(ch === '"' && dentro && sig === '"'){ celda += '"'; i++; }
-    else if(ch === '"'){ dentro = !dentro; }
-    else if(ch === ',' && !dentro){ fila.push(celda); celda=''; }
-    else if((ch === '\n' || ch === '\r') && !dentro){ if(ch === '\r' && sig === '\n') i++; fila.push(celda); if(fila.some(v=>v.trim()!=='')) filas.push(fila); fila = []; celda = ''; }
-    else { celda += ch; }
-  }
-  if(celda.length>0 || fila.length>0){ fila.push(celda); filas.push(fila); }
-  const encabezados = filas.shift()?.map(h=>h.trim()) || [];
-  return filas.map(row => { const obj = {}; encabezados.forEach((h,i)=> obj[h] = row[i] ? row[i].trim() : ''); return obj; });
-}
-
-// -------- Normalización y validación --------
-function normalizarPregunta(p){
-  return {
-    id: p.id ? (Number(p.id) || p.id) : crearIdTemporal(p),
-    modulo: p.modulo || p.modulo || 'General',
-    semana: p.semana || '',
-    tema: p.tema || 'General',
-    subtema: p.subtema || '',
-    nivel: p.nivel || '',
-    tipo_pregunta: p.tipo_pregunta || '',
-    pregunta: p.pregunta || p.enunciado || '',
-    opcion_a: p.opcion_a || p.a || '',
-    opcion_b: p.opcion_b || p.b || '',
-    opcion_c: p.opcion_c || p.c || '',
-    opcion_d: p.opcion_d || p.d || '',
-    opcion_e: p.opcion_e || p.e || '',
-    respuesta_correcta: (p.respuesta_correcta || p.correcta || '').toUpperCase().trim(),
-    respuesta_texto: p.respuesta_texto || '',
-    explicacion: p.explicacion || p.explicacion || '',
-    probabilidad_salida: p.probabilidad_salida || '',
-    prioridad: p.prioridad || '',
-    origen_refuerzo: p.origen_refuerzo || '',
-    fuente_base: p.fuente_base || '',
-    tags: p.tags || ''
-  };
-}
-
-function crearIdTemporal(p){
-  const texto = `${p.modulo || ''}-${p.tema || ''}-${p.pregunta || ''}`;
-  let h = 0; for(let i=0;i<texto.length;i++){ h = ((h<<5)-h) + texto.charCodeAt(i); h |= 0; }
-  return Math.abs(h);
-}
-
-function validarPregunta(p){
-  const tieneOpciones = p.opcion_a && p.opcion_b && p.opcion_c && p.opcion_d && p.opcion_e;
-  const respuestaValida = p.respuesta_correcta && LETRAS.includes(p.respuesta_correcta);
-  return p.pregunta && tieneOpciones && respuestaValida;
-}
-
-// -------- Selección de preguntas --------
-function seleccionarPreguntas(cantidad, modoSeleccion, modoPractica){
-  modoSeleccion = modoSeleccion || 'balanceado';
-  modoPractica = modoPractica || (elementos.modoPractica ? elementos.modoPractica.value : 'mixto');
-
-  if(modoPractica === 'probable'){
-    return seleccionarDesdeBanco(bancoPreguntasPrioritario, cantidad, modoSeleccion, modoPractica);
-  }
-  if(modoPractica === 'completo'){
-    return seleccionarDesdeBanco(bancoPreguntasAmplio, cantidad, modoSeleccion, modoPractica);
-  }
-
-  // mixto
-  const prioridadCount = Math.round(cantidad * 0.7);
-  const amplioCount = cantidad - prioridadCount;
-  const partePrior = seleccionarDesdeBanco(bancoPreguntasPrioritario, prioridadCount, modoSeleccion, modoPractica);
-  let parteAmplio = seleccionarDesdeBanco(bancoPreguntasAmplio, amplioCount, modoSeleccion, modoPractica);
-
-  const idsPrior = new Set(partePrior.map(p=>p.id));
-  parteAmplio = parteAmplio.filter(p=>!idsPrior.has(p.id));
-
-  if(partePrior.length + parteAmplio.length < cantidad){
-    const faltan = cantidad - (partePrior.length + parteAmplio.length);
-    const pool = bancoPreguntasAmplio.filter(p=> ![...partePrior,...parteAmplio].some(x=>x.id===p.id));
-    parteAmplio = parteAmplio.concat(mezclar(pool).slice(0,faltan));
-  }
-
-  return mezclar([...partePrior, ...parteAmplio]).slice(0, cantidad);
-}
-
-function seleccionarDesdeBanco(banco, cantidad, modoSeleccion, modoPractica){
-  modoSeleccion = modoSeleccion || 'balanceado';
-  const historial = new Set(obtenerHistorial(modoPractica));
-  const sinUsar = banco.filter(p => !historial.has(p.id));
-  let seleccion = [];
-  if(sinUsar.length >= cantidad){
-    seleccion = modoSeleccion === 'balanceado' ? seleccionarBalanceado(sinUsar, cantidad) : mezclar(sinUsar).slice(0,cantidad);
-  } else {
-    seleccion = sinUsar.slice();
-    const usados = banco.filter(p => historial.has(p.id) && !seleccion.some(s=>s.id===p.id));
-    const faltan = cantidad - seleccion.length;
-    seleccion = seleccion.concat(mezclar(usados).slice(0,faltan));
-  }
-  return seleccion.slice(0,cantidad);
-}
-
-function seleccionarBalanceado(preguntas, cantidad){
-  const seleccionadas = [];
-  const porModulo = agruparPor(preguntas, p=>p.modulo);
-  const modulos = mezclar(Object.keys(porModulo));
-  while(seleccionadas.length < cantidad){
-    let agrego = false;
-    for(const modulo of modulos){
-      if(seleccionadas.length >= cantidad) break;
-      const poolModulo = porModulo[modulo].filter(p => !seleccionadas.some(s=>s.id===p.id));
-      if(poolModulo.length===0) continue;
-      const porTema = agruparPor(poolModulo, p=>p.tema);
-      const temas = mezclar(Object.keys(porTema));
-      for(const tema of temas){
-        const poolTema = porTema[tema].filter(p=> !seleccionadas.some(s=>s.id===p.id));
-        if(poolTema.length>0){ seleccionadas.push(mezclar(poolTema)[0]); agrego=true; break; }
-      }
-    }
-    if(!agrego) break;
-  }
-  if(seleccionadas.length < cantidad){
-    const restantes = preguntas.filter(p=> !seleccionadas.some(s=>s.id===p.id));
-    seleccionadas.push(...mezclar(restantes).slice(0, cantidad - seleccionadas.length));
-  }
-  return mezclar(seleccionadas).slice(0,cantidad);
-}
-
-function agruparPor(lista, fn){
-  return lista.reduce((acc,item)=>{ const k = fn(item) || 'General'; (acc[k]=acc[k]||[]).push(item); return acc; }, {});
-}
-
-function mezclar(arr){ const c=[...arr]; for(let i=c.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [c[i],c[j]]=[c[j],c[i]];} return c; }
-
-// -------- Render y flujo --------
-function renderizarPreguntas(){
-  elementos.contenedorPreguntas.innerHTML = examenActual.map((p,idx)=>{
-    return `
-      <article class="question-card" id="pregunta-${p.id}">
-        <div class="question-meta">
-          <span class="badge">Pregunta ${idx+1}</span>
-          <span class="badge">${escaparHTML(p.modulo)}</span>
-          <span class="badge">${escaparHTML(p.tema)}</span>
-          ${p.nivel?`<span class="badge">${escaparHTML(p.nivel)}</span>`:''}
-        </div>
-        <div class="question-title">${escaparHTML(p.pregunta)}</div>
-        <div class="options">
-          ${LETRAS.map(letra=>`
-            <label class="option">
-              <input type="radio" name="pregunta_${p.id}" value="${letra}" onchange="guardarRespuesta('${p.id}','${letra}')" ${respuestasUsuario[p.id]===letra? 'checked':''}>
-              <span><strong>${letra})</strong> ${escaparHTML(obtenerTextoOpcion(p,letra))}</span>
-            </label>
-          `).join('')}
-        </div>
-      </article>
-    `;
-  }).join('');
-}
-
-function obtenerTextoOpcion(p, letra){ const clave = `opcion_${letra.toLowerCase()}`; return p[clave]||''; }
-
-function guardarRespuesta(id, letra){ respuestasUsuario[id]=letra; actualizarProgreso(); }
-
-function actualizarProgreso(){ const respondidas = Object.keys(respuestasUsuario).length; const total = examenActual.length; const porcentaje = total===0?0:Math.round((respondidas/total)*100); elementos.contadorRespondidas.textContent = `${respondidas}/${total} respondidas`; elementos.barraProgreso.style.width = `${porcentaje}%`; }
-
-function iniciarExamen(){
-  const cantidad = Number(elementos.cantidadPreguntas.value);
-  const modoSeleccion = elementos.modoSeleccion.value;
-  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
-  if(!bancoPreguntas || bancoPreguntas.length === 0){ alert('No hay preguntas cargadas para el modo seleccionado.'); return; }
-  examenActual = seleccionarPreguntas(cantidad, modoSeleccion, modoPractica);
-  respuestasUsuario = {};
-  if(examenActual.length===0){ alert('No se pudieron seleccionar preguntas. Reinicia el historial o cambia modo.'); return; }
-  renderizarPreguntas(); elementos.inicio.classList.add('hidden'); elementos.resultado.classList.add('hidden'); elementos.examen.classList.remove('hidden'); actualizarProgreso(); window.scrollTo({top:0, behavior:'smooth'});
-}
-
-function terminarExamen(){
-  const total = examenActual.length; const respondidas = Object.keys(respuestasUsuario).length;
-  if(respondidas < total){ const confirmar = confirm(`Te faltan ${total-respondidas} preguntas por responder. ¿Deseas terminar de todas formas?`); if(!confirmar) return; }
-
-  resultadosActuales = examenActual.map(p=>{ const marcada = respuestasUsuario[p.id] || ''; const correcta = p.respuesta_correcta; const estado = !marcada ? 'blanco' : marcada === correcta ? 'correcta' : 'incorrecta'; return {...p, marcada, correcta, estado}; });
-
-  // Guardar historial por modo
-  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
-  const idsExamen = examenActual.map(p=>p.id);
-  guardarHistorial(modoPractica, idsExamen);
-
-  mostrarResultados(); elementos.examen.classList.add('hidden'); elementos.resultado.classList.remove('hidden'); actualizarEstadisticas(); window.scrollTo({top:0, behavior:'smooth'});
-}
-
-function mostrarResultados(){
-  const total = resultadosActuales.length; const correctas = resultadosActuales.filter(r=>r.estado==='correcta').length; const incorrectas = resultadosActuales.filter(r=>r.estado==='incorrecta').length; const blanco = resultadosActuales.filter(r=>r.estado==='blanco').length; const porcentaje = total===0?0:Math.round((correctas/total)*100);
-  elementos.puntajeFinal.textContent = `${correctas}/${total}`; elementos.porcentajeFinal.textContent = `${porcentaje}%`; elementos.totalCorrectas.textContent = correctas; elementos.totalIncorrectas.textContent = incorrectas; elementos.totalBlanco.textContent = blanco; mostrarRevision('todo');
-}
-
-function mostrarRevision(tipo){
-  let lista = resultadosActuales; if(tipo==='incorrectas') lista = resultadosActuales.filter(r=>r.estado!=='correcta');
-  elementos.revision.innerHTML = lista.map((r,idx)=>{
-    const clase = r.estado==='correcta'?'correct-answer': r.estado==='incorrecta'?'wrong-answer':'blank-answer';
-    const textoMarcada = r.marcada ? `${r.marcada}) ${escaparHTML(obtenerTextoOpcion(r,r.marcada))}` : 'Sin responder';
-    const textoCorrecta = `${r.correcta}) ${escaparHTML(obtenerTextoOpcion(r,r.correcta))}`;
-    return `
-      <article class="review-card ${clase}">
-        <div class="review-meta">
-          <span class="badge">Revisión ${idx+1}</span>
-          <span class="badge">${escaparHTML(r.estado.toUpperCase())}</span>
-          <span class="badge">${escaparHTML(r.modulo)}</span>
-          <span class="badge">${escaparHTML(r.tema)}</span>
-        </div>
-        <div class="review-title">${escaparHTML(r.pregunta)}</div>
-        <div class="review-info">
-          <p><strong>Tu respuesta:</strong> ${escaparHTML(textoMarcada)}</p>
-          <p><strong>Respuesta correcta:</strong> ${escaparHTML(textoCorrecta)}</p>
-          ${r.respuesta_texto?`<p><strong>Respuesta clave:</strong> ${escaparHTML(r.respuesta_texto)}</p>`:''}
-        </div>
-        ${r.explicacion?`<div class="explanation"><strong>Explicación:</strong> ${escaparHTML(r.explicacion)}</div>`:''}
-      </article>
-    `;
-  }).join('');
-  if(lista.length===0) elementos.revision.innerHTML = `<div class="alert">No hay preguntas para mostrar en esta vista.</div>`;
-}
-
-function cancelarExamen(){ const confirmar = confirm('¿Seguro que deseas cancelar el examen actual?'); if(!confirmar) return; examenActual=[]; respuestasUsuario={}; elementos.examen.classList.add('hidden'); elementos.inicio.classList.remove('hidden'); window.scrollTo({top:0, behavior:'smooth'}); }
-
-// -------- Historial (por modo) --------
-function obtenerHistorial(modo){ modo = modo || (elementos.modoPractica?elementos.modoPractica.value:'mixto'); const key = STORAGE_KEYS[modo] || STORAGE_KEYS.mixto; try{ return JSON.parse(localStorage.getItem(key) || '[]'); }catch{ return []; } }
-
-function guardarHistorial(ids, modo){ modo = modo || (elementos.modoPractica?elementos.modoPractica.value:'mixto'); const key = STORAGE_KEYS[modo] || STORAGE_KEYS.mixto; const actuales = obtenerHistorial(modo); const unidos = [...new Set([...(actuales||[]), ...ids.map(Number)])]; localStorage.setItem(key, JSON.stringify(unidos)); }
-
-function reiniciarHistorial(){ const modo = elementos.modoPractica ? elementos.modoPractica.value : 'mixto'; const key = STORAGE_KEYS[modo] || STORAGE_KEYS.mixto; const confirmar = confirm('¿Deseas borrar el historial de preguntas usadas para el modo seleccionado?'); if(!confirmar) return; localStorage.removeItem(key); actualizarEstadisticas(); }
-
-function actualizarEstadisticas(){ const modo = elementos.modoPractica ? elementos.modoPractica.value : 'mixto'; const usadas = obtenerHistorial(modo); let total = 0; if(modo==='probable') total = bancoPreguntasPrioritario.length; else if(modo==='completo') total = bancoPreguntasAmplio.length; else { const map = new Map(); bancoPreguntasPrioritario.forEach(p=>map.set(p.id,p)); bancoPreguntasAmplio.forEach(p=>{ if(!map.has(p.id)) map.set(p.id,p); }); total = map.size; }
-  const disponibles = Math.max(0, total - (usadas?usadas.length:0)); elementos.totalPreguntas.textContent = total; elementos.preguntasUsadas.textContent = usadas ? usadas.length : 0; elementos.preguntasDisponibles.textContent = disponibles; }
-
-// -------- Utilidades --------
-function escaparHTML(texto){ return String(texto||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;"); }
-
-// Exponer guardarRespuesta global para inputs inline
-window.guardarRespuesta = guardarRespuesta;

@@ -35,8 +35,9 @@
         <h2>Practica con preguntas variadas de tus 4 módulos</h2>
 
         <p>
-          Este simulador carga tu banco de preguntas desde el archivo
-          <strong>banco_preguntas_examen.csv</strong>, selecciona preguntas al azar
+          Este simulador carga tu banco de preguntas desde los archivos
+          <strong>banco_preguntas_prioritario_ampliado_validado_conciso.json</strong> y
+          <strong>banco_preguntas_normal_ampliado_validado_conciso.json</strong>, selecciona preguntas al azar
           y evita repetirlas en exámenes consecutivos.
         </p>
 
@@ -68,12 +69,11 @@
           <div class="field">
             <label for="modoPractica">Modo de práctica</label>
             <select id="modoPractica">
-              <option value="mixto" selected>Simulacro mixto: 70% prioritario y 30% amplio</option>
-              <option value="probable">Simulacro probable: solo preguntas prioritarias</option>
-              <option value="completo">Repaso completo: banco amplio</option>
+              <option value="mixto" selected>Simulacro mixto: 50% prioritario y 50% normal</option>
+              <option value="probable">Simulacro prioritario: solo preguntas prioritarias</option>
             </select>
             <p class="small-note">
-              El modo mixto es recomendado para practicar durante la semana. El modo probable está recomendado para los últimos días antes del examen. El modo completo sirve para estudiar todos los temas.
+              El modo mixto combina mitad del banco prioritario y mitad del banco normal. El modo prioritario usa solo preguntas de alto enfoque para examen.
             </p>
           </div>
         </div>
@@ -90,7 +90,7 @@
 
         <p class="help-text">
           Sube todos los archivos de este proyecto al mismo directorio en Hostinger.
-          La aplicación carga los datos directamente desde los archivos JSON/CSV.
+          La aplicación carga los datos directamente desde los archivos JSON/CSV: prioritario y normal.
         </p>
       </div>
 
@@ -216,7 +216,7 @@
   </main>
 
   <footer class="footer">
-    <p>Simulador local de estudio | SENATI | Banco CSV: banco_preguntas_examen.csv</p>
+    <p>Simulador local de estudio | SENATI | Bancos: prioritario y normal</p>
   </footer>
 
   <script src="script.js"></script>

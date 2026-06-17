@@ -199,6 +199,53 @@ Si ya no hay suficientes preguntas nuevas, el sistema puede reutilizar algunas p
 
 ## Botón “Reiniciar historial”
 
+Este botón borra el historial de preguntas usadas en `localStorage` para que puedas volver a practicar sin repetir las mismas preguntas recientes.
+
+---
+
+## Ejecución local
+
+Como la aplicación carga archivos JSON/CSV con `fetch`, debe ejecutarse desde un servidor HTTP local y no directamente desde `file://`.
+
+### Opción 1: Usar Python 3
+
+1. Abre una terminal en la carpeta del proyecto:
+
+```powershell
+cd /d D:\Escritorio\SIMULACRO-EXAMEN
+```
+
+2. Inicia el servidor local:
+
+```powershell
+python -m http.server 8000
+```
+
+3. Abre en el navegador:
+
+```text
+http://localhost:8000
+```
+
+### Opción 2: Usar VS Code Live Server
+
+1. Instala la extensión Live Server en VS Code.
+2. Abre el proyecto en VS Code.
+3. Haz clic derecho en `index.html` y selecciona `Open with Live Server`.
+
+### Detalles importantes
+
+- La aplicación usa `data/banco_preguntas_curricular/banco_preguntas_examen.csv` como respaldo si no se carga el JSON.
+- Si el servidor está activo, puedes recargar la página para probar cambios inmediatamente.
+- El proyecto ya se verificó con:
+
+```powershell
+python -m http.server 8000
+```
+
+y responde correctamente en `http://localhost:8000/index.html`.
+
+
 El botón **Reiniciar historial** borra las preguntas usadas del modo seleccionado actualmente.
 
 Esto sirve si el estudiante quiere volver a practicar desde cero o repetir preguntas para reforzar memoria.
