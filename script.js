@@ -1,18 +1,23 @@
 ﻿// ========================================
-// Simulador SENATI - script.js (actualizado para 2 modos: mixto/probable)
+// Simulador SENATI - script.js (actualizado para selección de banco: normal/prioritario/prioritarioV2)
 // ========================================
 
 // Constantes de rutas y almacenamiento
 const BANCOS = {
-  prioritario: "data/banco_preguntas_prioridad/banco_preguntas_prioritario_ampliado_validado_conciso.json",
-  normal: "data/banco_preguntas_curricular/banco_preguntas_normal_ampliado_validado_conciso.json"
+  prioritario: "data/banco_preguntas_prioridad_v2/banco_prioritario_v3_con_preguntas_probables.json",
+  normal: "data/banco_preguntas_normal/banco_normal_repaso_v3_con_preguntas_probables.json"
+};
+const BANCOS_V2 = {
+  prioritarioV2: "data/banco_preguntas_prioridad_v2/banco_prioritario_v3_con_preguntas_probables.json"
 };
 
-const CSV_FILE = "data/banco_preguntas_curricular/banco_preguntas_normal_ampliado_validado_conciso.csv"; // fallback
+const CSV_FILE = "data/banco_preguntas_normal/banco_normal_repaso_v3_con_preguntas_probables.csv"; // fallback
 
 const STORAGE_KEYS = {
-  mixto: "historial_senati_mixto",
-  probable: "historial_senati_probable"
+  normal: "historial_senati_normal",
+  prioritario: "historial_senati_prioritario",
+  prioritarioV2: "historial_senati_prioritario_v2",
+  mixto: "historial_senati_mixto"
 };
 
 const LETRAS = ["A", "B", "C", "D", "E"]; // opciones vÃ¡lidas
@@ -65,7 +70,7 @@ const elementos = {
 // InicializaciÃ³n
 document.addEventListener('DOMContentLoaded', async () => {
   configurarEventos();
-  const modoInicial = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
+  const modoInicial = elementos.modoPractica ? elementos.modoPractica.value : 'normal';
   await cargarBancoModo(modoInicial);
   elementos.btnIniciar.disabled = bancoPreguntas.length === 0;
   actualizarEstadisticas();
@@ -112,19 +117,20 @@ async function cargarBancoModo(modo) {
   bancoPreguntasPrioritario = [];
   bancoPreguntasNormal = [];
 
-  if (modo === 'probable' || modo === 'mixto') {
-    bancoPreguntasPrioritario = ordenarBancoPrioritario(await cargarJSON(BANCOS.prioritario));
+  if (modo === 'prioritario' || modo === 'prioritarioV2' || modo === 'mixto') {
+    const rutaPrioritario = modo === 'prioritarioV2' ? BANCOS_V2.prioritarioV2 : BANCOS.prioritario;
+    bancoPreguntasPrioritario = ordenarBancoPrioritario(await cargarJSON(rutaPrioritario));
     if (bancoPreguntasPrioritario.length === 0) {
       // intentar CSV alternativo
       try {
-        const csvPath = BANCOS.prioritario.replace('.json', '.csv');
+        const csvPath = rutaPrioritario.replace('.json', '.csv');
         const txt = await (await fetch(csvPath)).text();
         bancoPreguntasPrioritario = ordenarBancoPrioritario(dedupePreguntas(parseCSV(txt).map(normalizarPregunta).filter(validarPregunta)));
       } catch (e) {}
     }
   }
 
-  if (modo === 'mixto') {
+  if (modo === 'normal' || modo === 'mixto') {
     bancoPreguntasNormal = await cargarJSON(BANCOS.normal);
     if (bancoPreguntasNormal.length === 0) {
       try {
@@ -134,17 +140,25 @@ async function cargarBancoModo(modo) {
     }
   }
 
-  if (modo === 'probable') {
+  if (modo === 'prioritario' || modo === 'prioritarioV2') {
     bancoPreguntas = [...bancoPreguntasPrioritario];
-    elementos.csvStatus.textContent = `âœ“ Banco prioritario cargado: ${bancoPreguntasPrioritario.length} preguntas.`;
+    elementos.csvStatus.textContent = `✔ Banco prioritario cargado: ${bancoPreguntasPrioritario.length} preguntas.`;
+  } else if (modo === 'normal') {
+    bancoPreguntas = [...bancoPreguntasNormal];
+    elementos.csvStatus.textContent = `✔ Banco normal cargado: ${bancoPreguntasNormal.length} preguntas.`;
   } else {
     // mixto 50/50 entre prioritario y normal (datos separados)
-    bancoPreguntas = [];
-    elementos.csvStatus.textContent = `âœ“ Bancos cargados (mixto 50/50): prioritario ${bancoPreguntasPrioritario.length}, normal ${bancoPreguntasNormal.length}.`;
+    bancoPreguntas = [...bancoPreguntasPrioritario, ...bancoPreguntasNormal];
+    elementos.csvStatus.textContent = `✔ Bancos cargados (mixto 50/50): prioritario ${bancoPreguntasPrioritario.length}, normal ${bancoPreguntasNormal.length}.`;
   }
 
   elementos.csvStatus.classList.remove('error');
   actualizarEstadisticas();
+  elementos.btnIniciar.disabled = modo === 'prioritario' || modo === 'prioritarioV2'
+    ? bancoPreguntasPrioritario.length === 0
+    : modo === 'normal'
+      ? bancoPreguntasNormal.length === 0
+      : bancoPreguntasPrioritario.length === 0 || bancoPreguntasNormal.length === 0;
 }
 
 // -------------------------
@@ -323,52 +337,48 @@ function validarPregunta(p) {
 // -------------------------
 function seleccionarPreguntas(cantidad, modoSeleccion, modoPractica) {
   modoSeleccion = modoSeleccion || 'balanceado';
-  modoPractica = modoPractica || (elementos.modoPractica ? elementos.modoPractica.value : 'mixto');
+  modoPractica = modoPractica || (elementos.modoPractica ? elementos.modoPractica.value : 'normal');
 
-  if (modoPractica === 'probable') {
+  if (modoPractica === 'prioritario' || modoPractica === 'prioritarioV2') {
     return seleccionarDesdeBanco(bancoPreguntasPrioritario, cantidad, modoSeleccion, modoPractica);
   }
 
   // Mixto 50/50 entre prioritario y normal
-  const prioridadCount = Math.round(cantidad * 0.5);
+  const prioridadCount = Math.floor(cantidad / 2);
   const normalCount = cantidad - prioridadCount;
 
   const partePrioritario = seleccionarDesdeBanco(bancoPreguntasPrioritario, prioridadCount, modoSeleccion, modoPractica);
-  let parteNormal = seleccionarDesdeBanco(bancoPreguntasNormal, normalCount, modoSeleccion, modoPractica);
+  const parteNormal = seleccionarDesdeBanco(bancoPreguntasNormal, normalCount, modoSeleccion, modoPractica);
 
-  const clavePrioritaria = new Set([
-    ...partePrioritario.map(p => `id:${p.id}`),
-    ...partePrioritario.map(p => `txt:${p.clave}`)
-  ]);
+  const clavesPrioritarias = new Set(partePrioritario.map(p => `txt:${p.clave}`));
+  const normalFiltrado = parteNormal.filter(p => !clavesPrioritarias.has(`txt:${p.clave}`));
 
-  parteNormal = parteNormal.filter(p => {
-    return !clavePrioritaria.has(`id:${p.id}`) && !clavePrioritaria.has(`txt:${p.clave}`);
-  });
+  let seleccionMixta = [...partePrioritario, ...normalFiltrado];
 
-  if (partePrioritario.length + parteNormal.length < cantidad) {
-    const faltan = cantidad - (partePrioritario.length + parteNormal.length);
-    const poolNormal = filtrarDuplicadosEnLista(bancoPreguntasNormal).filter(p => {
-      return ![...partePrioritario, ...parteNormal].some(x => x.id === p.id || x.clave === p.clave);
-    });
-    parteNormal = parteNormal.concat(mezclar(poolNormal).slice(0, faltan));
+  if (seleccionMixta.length < cantidad) {
+    const faltan = cantidad - seleccionMixta.length;
+    const poolPrioritario = filtrarDuplicadosEnLista(bancoPreguntasPrioritario).filter(p => !seleccionMixta.some(x => x.clave === p.clave));
+    const poolNormal = filtrarDuplicadosEnLista(bancoPreguntasNormal).filter(p => !seleccionMixta.some(x => x.clave === p.clave));
+    const fillExtras = mezclar([...poolPrioritario, ...poolNormal]).slice(0, faltan);
+    seleccionMixta = [...seleccionMixta, ...fillExtras];
   }
 
-  return mezclar([...partePrioritario, ...parteNormal]).slice(0, cantidad);
+  return mezclar(seleccionMixta).slice(0, cantidad);
 }
 
 function seleccionarDesdeBanco(banco, cantidad, modoSeleccion, modoPractica) {
   modoSeleccion = modoSeleccion || 'balanceado';
-  modoPractica = modoPractica || 'mixto';
+  modoPractica = modoPractica || 'normal';
 
   const bancoUnico = filtrarDuplicadosEnLista(banco);
-  const bancoOrdenado = modoPractica === 'probable' ? ordenarBancoPrioritario(bancoUnico) : bancoUnico;
+  const bancoOrdenado = modoPractica === 'prioritario' || modoPractica === 'prioritarioV2' ? ordenarBancoPrioritario(bancoUnico) : bancoUnico;
   const historial = new Set(obtenerHistorial(modoPractica));
   const sinUsar = bancoOrdenado.filter(p => {
     return !historial.has(`id:${p.id}`) && !historial.has(`txt:${p.clave}`);
   });
 
   let seleccion = [];
-  const prioridadDirecta = modoPractica === 'probable';
+  const prioridadDirecta = modoPractica === 'prioritario' || modoPractica === 'prioritarioV2';
 
   if (prioridadDirecta) {
     const topPoolSize = Math.max(cantidad * 2, cantidad + 10);
@@ -499,7 +509,7 @@ function actualizarProgreso() {
 function iniciarExamen() {
   const cantidad = Number(elementos.cantidadPreguntas.value);
   const modoSeleccion = elementos.modoSeleccion.value;
-  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
+  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'normal';
 
   examenActual = seleccionarPreguntas(cantidad, modoSeleccion, modoPractica);
   respuestasUsuario = {};
@@ -533,7 +543,7 @@ function terminarExamen() {
   });
 
   // Guardar en historial segÃºn modo
-  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
+  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'normal';
   const idsExamen = examenActual.map(p => p.id);
   const clavesExamen = examenActual.map(p => p.clave).filter(Boolean);
   guardarHistorial(modoPractica, idsExamen, clavesExamen);
@@ -602,7 +612,7 @@ function cancelarExamen() {
 function reiniciarParaMismoModo() {
   // Genera otro examen con mismo modo
   const modoSeleccion = elementos.modoSeleccion.value;
-  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
+  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'normal';
   examenActual = seleccionarPreguntas(Number(elementos.cantidadPreguntas.value), modoSeleccion, modoPractica);
   respuestasUsuario = {};
   renderizarPreguntas();
@@ -614,9 +624,9 @@ function reiniciarParaMismoModo() {
 // -------------------------
 // Historial por modo
 // -------------------------
-function obtenerHistorial(modoPractica = 'mixto') {
+function obtenerHistorial(modoPractica = 'normal') {
   try {
-    const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.mixto;
+    const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.normal;
     const almacenado = JSON.parse(localStorage.getItem(key) || '[]');
     if (!Array.isArray(almacenado)) return [];
 
@@ -636,7 +646,7 @@ function obtenerHistorial(modoPractica = 'mixto') {
 
 function guardarHistorial(modoPractica, ids, claves = []) {
   try {
-    const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.mixto;
+    const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.normal;
     const actuales = new Set(obtenerHistorial(modoPractica));
     ids.forEach(id => {
       if (id != null && !Number.isNaN(Number(id))) actuales.add(`id:${Number(id)}`);
@@ -651,14 +661,14 @@ function guardarHistorial(modoPractica, ids, claves = []) {
 function reiniciarHistorial() {
   const confirmar = confirm('Â¿Deseas borrar el historial del modo seleccionado? Esto permitirÃ¡ que preguntas repetidas vuelvan a aparecer.');
   if (!confirmar) return;
-  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
-  const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.mixto;
+  const modoPractica = elementos.modoPractica ? elementos.modoPractica.value : 'normal';
+  const key = STORAGE_KEYS[modoPractica] || STORAGE_KEYS.normal;
   localStorage.removeItem(key);
   actualizarEstadisticas();
 }
 
 function actualizarEstadisticas() {
-  const modo = elementos.modoPractica ? elementos.modoPractica.value : 'mixto';
+  const modo = elementos.modoPractica ? elementos.modoPractica.value : 'normal';
   const usadas = obtenerHistorial(modo) || [];
   const idsUsadas = new Set(usadas.filter(entry => entry.startsWith('id:')).map(entry => Number(entry.slice(3))).filter(n => !Number.isNaN(n)));
   const clavesUsadas = new Set(usadas.filter(entry => entry.startsWith('txt:')).map(entry => entry.slice(4)));
@@ -671,7 +681,7 @@ function actualizarEstadisticas() {
     disponibles = [...bancoPreguntasPrioritario, ...bancoPreguntasNormal].filter(p => !idsUsadas.has(Number(p.id)) && !clavesUsadas.has(p.clave)).length;
   }
 
-  if (modo === 'probable') {
+  if (modo === 'prioritario' || modo === 'prioritarioV2') {
     total = bancoPreguntasPrioritario.length;
     disponibles = bancoPreguntasPrioritario.filter(p => !idsUsadas.has(Number(p.id)) && !clavesUsadas.has(p.clave)).length;
   }
